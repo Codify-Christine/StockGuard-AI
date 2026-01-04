@@ -1,0 +1,28 @@
+CREATE OR REPLACE DYNAMIC TABLE STOCK_HEALTH
+TARGET_LAG = '1 HOUR'
+WAREHOUSE = COMPUTE_WH
+AS
+SELECT
+    location,
+    item,
+    date,
+    closing_stock,
+    lead_time_days,
+    issued,
+    (issued / 7.0) AS avg_daily_usage,
+    (closing_stock / NULLIF(issued / 7.0,0)) AS days_left,
+    CASE
+        WHEN (closing_stock / (issued / 7.0)) < lead_time_days THEN 'CRITICAL'
+        WHEN (closing_stock / (issued / 7.0)) < lead_time_days * 2 THEN 'WARNING'
+        ELSE 'OK'
+    END AS risk_level,
+    CASE
+        WHEN issued > AVG(issued) OVER (PARTITION BY location, item ORDER BY date ROWS BETWEEN 7 PRECEDING AND 1 PRECEDING) * 1.25
+        THEN 'SPIKE'
+        ELSE 'NORMAL'
+    END AS demand_risk,
+    GREATEST(
+        (lead_time_days * (issued / 7.0) * 1.3) - closing_stock,
+        0
+    ) AS reorder_qty
+FROM INVENTORY_RAW;
